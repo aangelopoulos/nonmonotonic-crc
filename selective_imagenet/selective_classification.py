@@ -2,7 +2,7 @@
 Selective Classification for ImageNet Experiments
 
 This module provides the selective classification algorithm for use in ImageNet experiments.
-It imports from the shared conformal_risk_control module.
+It imports from the shared selective module.
 """
 
 import os
@@ -11,15 +11,15 @@ import numpy as np
 
 # Add parent directory to path to import shared module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from conformal_risk_control import (
+from selective import (
     LTTSelectiveClassifier,
     SelectiveClassifier, 
-    StabilityEstimator
+    SelectiveClassifierStabilityEstimator
 )
 
 __all__ = [
     'SelectiveClassifier', 
-    'StabilityEstimator'
+    'SelectiveClassifierStabilityEstimator'
 ]
 
 
@@ -74,7 +74,7 @@ def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val
     val_errors = (val_yhats != val_labels).astype(int)
     
     # Fit selective classifier
-    estimator = StabilityEstimator(alpha=alpha, n_bootstrap=1000)
+    estimator = SelectiveClassifierStabilityEstimator(alpha=alpha, n_bootstrap=1000)
     if stability_estimator == "df":
         beta_hat = estimator.estimate_beta_df(cal_phats, cal_errors)
     elif stability_estimator == 'K':

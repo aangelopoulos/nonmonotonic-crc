@@ -16,3 +16,4 @@ build/
 .vscode/
 .idea/
 data/
+.cache/

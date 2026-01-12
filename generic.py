@@ -53,19 +53,15 @@ class GenericConformalRiskControl:
         self.theta_hat = None
 
     def _compute_empirical_risk(self,
-                                 X: np.ndarray,
-                                 Y: np.ndarray,
-                                 theta: float,
-                                 loss_fn: Callable) -> float:
+                                 loss_matrix: np.ndarray,
+                                 theta: float) -> float:
         """
         Compute empirical risk at parameter theta.
 
         Parameters
         ----------
-        X : np.ndarray
-            Features
-        Y : np.ndarray
-            Labels
+        loss_matrix : np.ndarray
+            nxm matrix of losses for n data points and m theta values
         theta : float
             Parameter value
         loss_fn : callable
@@ -76,27 +72,13 @@ class GenericConformalRiskControl:
         risk : float
             Empirical risk
         """
-        # Try vectorized computation first
-        try:
-            losses = loss_fn(X, Y, theta)
-            if np.isscalar(losses):
-                # If loss_fn returns scalar, fall back to elementwise
-                raise TypeError
-            return np.mean(losses)
-        except (TypeError, ValueError):
-            # Fall back to element-wise computation
-            n = len(X)
-            losses = np.fromiter(
-                (loss_fn(X[i], Y[i], theta) for i in range(n)),
-                dtype=np.float64,
-                count=n
-            )
-            return np.mean(losses)
+        # first find the index of the theta value in the theta_grid
+        idx = np.argmin(np.abs(self.theta_grid - theta))
+        # then return the mean of the losses for the index
+        return np.mean(loss_matrix[:, idx])
 
     def fit(self,
-            X: np.ndarray,
-            Y: np.ndarray,
-            loss_fn: Callable,
+            loss_matrix: np.ndarray,
             theta_grid: Optional[np.ndarray] = None) -> float:
         """
         Fit the risk controller by finding the optimal parameter.
@@ -106,12 +88,8 @@ class GenericConformalRiskControl:
 
         Parameters
         ----------
-        X : np.ndarray, shape (n,)
-            Features for calibration examples
-        Y : np.ndarray, shape (n,)
-            Labels for calibration examples
-        loss_fn : callable
-            Loss function ℓ(x, y; θ) that takes (x, y, theta) and returns loss
+        loss_matrix : np.ndarray, shape (n, m)
+            nxm matrix of losses for n data points and m theta values
         theta_grid : np.ndarray, optional
             Grid of theta values to search. If None, uses self.theta_grid
 
@@ -125,43 +103,26 @@ class GenericConformalRiskControl:
 
         if self.theta_grid is None:
             raise ValueError("Must provide theta_grid either in __init__ or fit()")
-
-        # Sort theta_grid to ensure we find the infimum (smallest valid theta)
-        theta_sorted = np.sort(self.theta_grid)
-
-        # Compute all empirical risks for efficiency
-        m = len(theta_sorted)
-        risks = np.zeros(m)
-        for j, theta in enumerate(theta_sorted):
-            risks[j] = self._compute_empirical_risk(X, Y, theta, loss_fn)
-
         # Find smallest theta where empirical risk ≤ alpha
+        risks = loss_matrix.mean(axis=0)
         feasible = risks <= self.alpha
         if np.any(feasible):
             idx = np.argmax(feasible)  # First True value
-            self.theta_hat = theta_sorted[idx]
+            self.theta_hat = theta_grid[idx]
         else:
             # If no theta satisfies the constraint, return the last (largest) value
-            self.theta_hat = theta_sorted[-1]
+            self.theta_hat = theta_grid[-1]
 
         return self.theta_hat
 
-    def predict_risk(self,
-                     X_test: np.ndarray,
-                     Y_test: np.ndarray,
-                     loss_fn: Callable) -> float:
+    def predict_risk(self, loss_matrix: np.ndarray) -> float:
         """
         Compute realized risk on test set.
 
         Parameters
         ----------
-        X_test : np.ndarray
-            Test features
-        Y_test : np.ndarray
-            Test labels
-        loss_fn : callable
-            Loss function
-
+        loss_matrix : np.ndarray
+            nxm matrix of losses for n data points and m theta values
         Returns
         -------
         risk : float
@@ -170,7 +131,7 @@ class GenericConformalRiskControl:
         if self.theta_hat is None:
             raise ValueError("Must call fit() before predict_risk()")
 
-        return self._compute_empirical_risk(X_test, Y_test, self.theta_hat, loss_fn)
+        return self._compute_empirical_risk(loss_matrix, self.theta_hat)
 
 
 class GenericStabilityEstimator:
@@ -201,11 +162,7 @@ class GenericStabilityEstimator:
         self.alpha = alpha
         self.n_bootstrap = n_bootstrap
 
-    def estimate_beta_def(self,
-                         X: np.ndarray,
-                         Y: np.ndarray,
-                         loss_fn: Callable,
-                         theta_grid: np.ndarray) -> float:
+    def estimate_beta_def(self, fdr_matrix: np.ndarray, theta_grid: np.ndarray) -> float:
         """
         Estimate β directly from definition (Section 2.3.1).
 
@@ -216,12 +173,8 @@ class GenericStabilityEstimator:
 
         Parameters
         ----------
-        X : np.ndarray
-            Features
-        Y : np.ndarray
-            Labels
-        loss_fn : callable
-            Loss function ℓ(x, y; θ)
+        fdr_matrix : np.ndarray
+            FDR matrix
         theta_grid : np.ndarray
             Grid of theta values
 
@@ -230,19 +183,19 @@ class GenericStabilityEstimator:
         beta_hat : float
             Estimated stability parameter
         """
-        n = len(X)
+        n = len(fdr_matrix)
         Delta_values = np.zeros(self.n_bootstrap)
 
         # Bootstrap
         for b in range(self.n_bootstrap):
             # Sample with replacement (n+1 samples)
             idx = np.random.choice(n, size=n+1, replace=True)
-            X_boot = X[idx]
-            Y_boot = Y[idx]
+            fdr_matrix_boot = fdr_matrix[idx]
 
             # Fit A* on full bootstrap data
             controller_star = GenericConformalRiskControl(alpha=self.alpha)
-            theta_star = controller_star.fit(X_boot, Y_boot, loss_fn, theta_grid)
+            theta_star = controller_star.fit(fdr_matrix_boot, theta_grid)
+            idx_star = np.argmin(np.abs(theta_grid - theta_star))
 
             # Compute leave-one-out losses using vectorized operations
             loss_diffs = np.zeros(n+1)
@@ -251,16 +204,15 @@ class GenericStabilityEstimator:
                 # Leave one out
                 mask = np.ones(n+1, dtype=bool)
                 mask[i] = False
-                X_loo = X_boot[mask]
-                Y_loo = Y_boot[mask]
 
                 # Fit A on leave-one-out data
                 controller_loo = GenericConformalRiskControl(alpha=self.alpha)
-                theta_loo = controller_loo.fit(X_loo, Y_loo, loss_fn, theta_grid)
+                theta_loo = controller_loo.fit(fdr_matrix_boot[mask], theta_grid)
+                idx_loo = np.argmin(np.abs(theta_grid - theta_loo))
 
                 # Compute loss difference
-                loss_loo = loss_fn(X_boot[i], Y_boot[i], theta_loo)
-                loss_star = loss_fn(X_boot[i], Y_boot[i], theta_star)
+                loss_loo = fdr_matrix_boot[i, idx_loo]
+                loss_star = fdr_matrix_boot[i, idx_star]
 
                 loss_diffs[i] = loss_loo - loss_star
 
@@ -323,9 +275,7 @@ class GenericStabilityEstimator:
         return beta_hat
 
     def estimate_beta_smooth(self,
-                            X: np.ndarray,
-                            Y: np.ndarray,
-                            loss_fn: Callable,
+                            loss_matrix: np.ndarray,
                             theta_grid: np.ndarray,
                             delta_min: float = 1e-4,
                             delta_max: float = 1e-1) -> float:
@@ -343,12 +293,8 @@ class GenericStabilityEstimator:
 
         Parameters
         ----------
-        X : np.ndarray
-            Features
-        Y : np.ndarray
-            Labels
-        loss_fn : callable
-            Loss function ℓ(x, y; θ), assumed continuous and Lipschitz in θ
+        loss_matrix : np.ndarray
+            nxm matrix of losses for n data points and m theta values
         theta_grid : np.ndarray
             Grid of theta values for estimation
         delta_min : float
@@ -361,24 +307,14 @@ class GenericStabilityEstimator:
         beta_hat : float
             Estimated stability parameter
         """
-        n = len(X)
+        n = len(loss_matrix)
         beta_values = np.zeros(self.n_bootstrap)
 
         # Bootstrap
         for b in range(self.n_bootstrap):
             # Sample with replacement (n+1 samples)
             idx = np.random.choice(n, size=n+1, replace=True)
-            X_boot = X[idx]
-            Y_boot = Y[idx]
-
-            # Estimate Lipschitz constant L using vectorized operations
-            m_theta = len(theta_grid)
-
-            # Compute loss matrix: losses[i, j] = loss_fn(X_boot[i], Y_boot[i], theta_grid[j])
-            losses = np.zeros((n+1, m_theta))
-            for i in range(n+1):
-                for j in range(m_theta):
-                    losses[i, j] = loss_fn(X_boot[i], Y_boot[i], theta_grid[j])
+            loss_matrix_boot = loss_matrix[idx]
 
             # Compute Lipschitz constants for all pairs of theta values
             # For each data point, compute max |loss(θ1) - loss(θ2)| / |θ1 - θ2|
@@ -388,13 +324,13 @@ class GenericStabilityEstimator:
 
             L_hat = 0.0
             for i in range(n+1):
-                loss_diffs = np.abs(losses[i, :, None] - losses[i, None, :])
+                loss_diffs = np.abs(loss_matrix_boot[i, :, None] - loss_matrix_boot[i, None, :])
                 L_estimates_i = loss_diffs / theta_diffs
                 L_hat = max(L_hat, np.max(L_estimates_i[np.isfinite(L_estimates_i)]))
 
             # Fit algorithm on bootstrap data
             controller = GenericConformalRiskControl(alpha=self.alpha)
-            theta_hat_boot = controller.fit(X_boot, Y_boot, loss_fn, theta_grid)
+            theta_hat_boot = controller.fit(loss_matrix_boot, theta_grid)
 
             # Estimate local slope m near theta_hat
             # m = inf_{δ ∈ [δ_min, δ_max]} |R(θ̂+δ) - R(θ̂)| / δ
@@ -406,10 +342,10 @@ class GenericStabilityEstimator:
 
             if np.any(valid_mask):
                 risk_hat = controller._compute_empirical_risk(
-                    X_boot, Y_boot, theta_hat_boot, loss_fn
+                    loss_matrix_boot, theta_hat_boot
                 )
                 risks_perturbed = np.array([
-                    controller._compute_empirical_risk(X_boot, Y_boot, theta_p, loss_fn)
+                    controller._compute_empirical_risk(loss_matrix_boot, theta_p)
                     for theta_p in theta_perturbed[valid_mask]
                 ])
                 slopes = np.abs(risks_perturbed - risk_hat) / delta_range[valid_mask]
@@ -426,11 +362,8 @@ class GenericStabilityEstimator:
         return beta_hat
 
     def estimate_all(self,
-                    X: np.ndarray,
-                    Y: np.ndarray,
-                    loss_fn: Callable,
+                    loss_matrix: np.ndarray,
                     theta_grid: np.ndarray,
-                    m: int = 100,
                     delta_min: float = 1e-4,
                     delta_max: float = 1e-1) -> dict:
         """
@@ -438,16 +371,10 @@ class GenericStabilityEstimator:
 
         Parameters
         ----------
-        X : np.ndarray
-            Features
-        Y : np.ndarray
-            Labels
-        loss_fn : callable
-            Loss function
+        loss_matrix : np.ndarray
+            nxm matrix of losses for n data points and m theta values
         theta_grid : np.ndarray
             Grid of theta values
-        m : int
-            Discretization parameter for discretized method
         delta_min : float
             Min delta for smooth method
         delta_max : float
@@ -458,16 +385,17 @@ class GenericStabilityEstimator:
         estimates : dict
             Dictionary with keys 'definition', 'discretized', 'smooth'
         """
-        n = len(X)
+        n = len(loss_matrix)
+        m = len(theta_grid)
 
         print("Estimating β from definition (bootstrap)...")
-        beta_def = self.estimate_beta_def(X, Y, loss_fn, theta_grid)
+        beta_def = self.estimate_beta_def(loss_matrix, theta_grid)
 
         print("Estimating β using discretization bound...")
         beta_disc = self.estimate_beta_discretized(n, m)
 
         print("Estimating β using Lipschitz-slope bound...")
-        beta_smooth = self.estimate_beta_smooth(X, Y, loss_fn, theta_grid,
+        beta_smooth = self.estimate_beta_smooth(loss_matrix, theta_grid,
                                                 delta_min, delta_max)
 
         return {

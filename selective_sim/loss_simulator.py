@@ -3,9 +3,9 @@ import numpy as np
 def compute_loss(P_i, E_i, theta, alpha):
     """
     Selective prediction loss:
-    ℓ(i; θ) = 𝟙{E_i=1, P̂_i > θ} - α·𝟙{P̂_i > θ} + α
+    ell(i; θ) = ind{E_i=1, P̂_i > θ} - alpha·ind{P̂_i > θ} + alpha
     """
-    return (E_i * (P_i > theta) - alpha * (P_i > theta) + alpha).astype(float)
+    return (E_i * (P_i > theta).astype(float) - alpha * (P_i > theta).astype(float) + alpha).astype(float)
 
 def error_prob_model(p, alpha, base_strength=10, instability_parameter=0):
     """
@@ -52,7 +52,7 @@ def simulate_empirical_risk(n, alpha, theta_grid, instability_parameter, base_st
         Empirical risk at each threshold
     """
     # Generate confidence scores uniformly
-    P_hat = np.random.uniform(0.5, 1, n)
+    P_hat = np.random.uniform(0, 1, n)
     
     # Generate errors based on model with deviation
     error_prob = error_prob_model(P_hat, alpha, base_strength=base_strength, 

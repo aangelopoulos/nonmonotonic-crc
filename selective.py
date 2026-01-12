@@ -1,5 +1,5 @@
 """
-Conformal Risk Control for Non-Monotonic Losses
+Selective Classification
 =================================================
 
 Shared module implementing selective classification algorithms and stability estimation.
@@ -10,7 +10,7 @@ This module can be imported by both selective_sim and selective_imagenet experim
 import numpy as np
 from scipy.optimize import brentq
 from scipy.stats import binom
-from typing import Tuple, Callable, Optional
+from typing import Callable, Optional
 
 
 class SelectiveClassifier:
@@ -357,7 +357,7 @@ class LTTSelectiveClassifier:
         else:
             return 0.0
 
-class StabilityEstimator:
+class SelectiveClassifierStabilityEstimator:
     """
     Estimate stability parameter β for selective classification.
     
