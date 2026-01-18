@@ -190,7 +190,7 @@ class LTTSelectiveClassifier:
     Section 2.2.1 - Selective Classification Algorithm
     """
     
-    def __init__(self, alpha: float = 0.1, delta: float = 0.1, min_n: int = 15):
+    def __init__(self, alpha: float = 0.1, delta: float = 0.1, min_n: int = 50, grid_size: int = 5000):
         """
         Initialize the selective classifier.
         
@@ -206,7 +206,8 @@ class LTTSelectiveClassifier:
         self.delta = delta
         self.theta_hat = None
         self.j_star = -1
-        self.min_n = 15
+        self.min_n = min_n
+        self.grid_size = grid_size
         
     def compute_loss(self, P_i: float, E_i: int, theta: float) -> float:
         """

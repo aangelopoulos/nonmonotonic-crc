@@ -25,7 +25,7 @@ __all__ = [
 
 def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val_labels, 
                                                alpha=0.1, LTT=False, stability_estimator=None,
-                                               delta=0.1, verbose=True):
+                                               delta=0.1, min_n=50, grid_size=5000, verbose=True):
     """
     Apply selective classification to ImageNet data.
     
@@ -43,12 +43,18 @@ def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val
         Target risk level (1-alpha is desired selective accuracy)
     LTT : bool
         True if we use LTT
-    stability_estomator : ['K', 'df', 'definition', None]
+    stability_estomator : ['K', 'df', 'definition', float, None]
         Picks the stability estimator. Definition is the most accurate, 
         K is an efficient upper-bound for selective classification, 
-        df is a distribution-free bound, and None does no correction.
+        df is a distribution-free bound, 
+        a float is a fixed stability parameter,
+        and None does no correction.
     delta : float
         Error rate for LTT (only used when LTT=True)
+    min_n : int
+        Minimum number of examples to use for LTT
+    grid_size : int
+        Number of grid points to use for LTT
     verbose : bool
         Print results
         
@@ -81,6 +87,8 @@ def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val
         beta_hat = estimator.estimate_beta_K(cal_phats, cal_errors)
     elif stability_estimator == 'def': 
         beta_hat = estimator.estimate_beta_def(cal_phats, cal_errors)
+    elif isinstance(stability_estimator, float):
+        beta_hat = stability_estimator
     else:
         beta_hat = 0
 
@@ -88,7 +96,7 @@ def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val
     alpha_adjusted = max(0.0, alpha - beta_hat)
 
     if LTT:
-        classifier = LTTSelectiveClassifier(alpha=alpha, delta=delta)
+        classifier = LTTSelectiveClassifier(alpha=alpha, delta=delta, min_n=min_n, grid_size=grid_size)
     else:
         classifier = SelectiveClassifier(alpha=alpha_adjusted)
     theta_hat = classifier.fit(cal_phats, cal_errors)
@@ -130,3 +138,10 @@ def apply_selective_classification_to_imagenet(cal_smx, cal_labels, val_smx, val
     
     return results
 
+def estimate_beta_by_definition(cal_phats, cal_errors, alpha=0.1, n_bootstrap=1000):
+    """
+    Estimate beta by definition.
+    """
+    estimator = SelectiveClassifierStabilityEstimator(alpha=alpha, n_bootstrap=n_bootstrap)
+    beta_hat = estimator.estimate_beta_def(cal_phats, cal_errors)
+    return beta_hat
