@@ -77,7 +77,7 @@ class RegularizedERM:
         objective : float
             R̂_D(θ) + (λ/2)||θ||²_2
         """
-        empirical_risk = np.mean([loss_fn(z, theta) for z in data])
+        empirical_risk = loss_fn(data, theta).mean()
         regularization = 0.5 * self.lam * np.sum(theta ** 2)
         return empirical_risk + regularization
 
@@ -102,13 +102,14 @@ class RegularizedERM:
         gradient : np.ndarray
             ∇R̂_D(θ) + λθ
         """
-        empirical_grad = np.mean([grad_fn(z, theta) for z in data], axis=0)
+        empirical_grad = grad_fn(data, theta).mean(axis=0)
         return empirical_grad + self.lam * theta
 
     def fit(self,
             data: np.ndarray,
             loss_fn: Callable,
-            grad_fn: Optional[Callable] = None) -> np.ndarray:
+            grad_fn: Callable, 
+            theta_init: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Fit regularized ERM by minimizing the objective.
 
@@ -118,8 +119,10 @@ class RegularizedERM:
             Training dataset
         loss_fn : callable
             Loss function ℓ(z; θ)
-        grad_fn : callable, optional
-            Gradient function ∇ℓ(z; θ). If None, uses numerical gradients.
+        grad_fn : callable
+            Gradient function ∇ℓ(z; θ).
+        theta_init : np.ndarray
+            Initial parameter value for optimization
 
         Returns
         -------
@@ -128,53 +131,20 @@ class RegularizedERM:
         """
         # Initialize theta if not provided
         if self.theta_init is None:
-            # Infer dimension from first data point
-            if hasattr(data[0], '__len__'):
-                d = len(data[0]) if not isinstance(data[0], tuple) else len(data[0][0])
-            else:
-                d = 1
-            theta_init = np.zeros(d)
-        else:
-            theta_init = self.theta_init
+            self.theta_init = theta_init
+        if self.theta_init is None:
+            raise ValueError("theta_init must be provided in fit() or __init__()") # Throw error
 
         # Optimize
-        if grad_fn is not None:
-            result = minimize(
-                fun=lambda theta: self._objective(theta, loss_fn, data),
-                x0=theta_init,
-                jac=lambda theta: self._gradient(theta, grad_fn, data),
-                method=self.method
-            )
-        else:
-            result = minimize(
-                fun=lambda theta: self._objective(theta, loss_fn, data),
-                x0=theta_init,
-                method=self.method
-            )
+        result = minimize(
+            fun=lambda theta: self._objective(theta, loss_fn, data),
+            x0=self.theta_init,
+            jac=lambda theta: self._gradient(theta, grad_fn, data),
+            method=self.method
+        )
 
         self.theta_hat = result.x
         return self.theta_hat
-
-    def predict(self, theta: Optional[np.ndarray] = None) -> np.ndarray:
-        """
-        Return the fitted parameter.
-
-        Parameters
-        ----------
-        theta : np.ndarray, optional
-            If None, returns self.theta_hat
-
-        Returns
-        -------
-        theta : np.ndarray
-            Parameter vector
-        """
-        if theta is not None:
-            return theta
-        if self.theta_hat is None:
-            raise ValueError("Must call fit() before predict()")
-        return self.theta_hat
-
 
 class ERMStabilityEstimator:
     """
@@ -391,7 +361,8 @@ class ERMStabilityEstimator:
     def estimate_beta_loss_direct(self,
                                   data: np.ndarray,
                                   loss_fn: Callable,
-                                  grad_fn: Optional[Callable] = None) -> float:
+                                  grad_fn: Callable,
+                                  theta_init: np.ndarray) -> float:
         """
         Estimate β directly from definition using loss scale.
 
@@ -407,8 +378,10 @@ class ERMStabilityEstimator:
             Calibration dataset
         loss_fn : callable
             Loss function ℓ(z; θ)
-        grad_fn : callable, optional
-            Gradient function for faster optimization
+        grad_fn : callable
+            Gradient function for erm
+        theta_init : np.ndarray
+            Initial parameter value for optimization
 
         Returns
         -------
@@ -424,7 +397,7 @@ class ERMStabilityEstimator:
             data_boot = data[idx]
 
             # Fit A* on full bootstrap data
-            erm_star = RegularizedERM(lam=self.lam)
+            erm_star = RegularizedERM(lam=self.lam, theta_init=theta_init)
             theta_star = erm_star.fit(data_boot, loss_fn, grad_fn)
 
             # Compute leave-one-out losses
@@ -441,7 +414,7 @@ class ERMStabilityEstimator:
                 theta_loo = erm_loo.fit(data_loo, loss_fn, grad_fn)
 
                 # Compute loss difference
-                z_i = data_boot[i]
+                z_i = data_boot[i:i+1, :]
                 loss_loo = loss_fn(z_i, theta_loo)
                 loss_star = loss_fn(z_i, theta_star)
 
@@ -458,7 +431,8 @@ class ERMStabilityEstimator:
     def estimate_beta_grad_direct(self,
                                   data: np.ndarray,
                                   loss_fn: Callable,
-                                  grad_fn: Callable) -> np.ndarray:
+                                  grad_fn: Callable,
+                                  theta_init: np.ndarray) -> np.ndarray:
         """
         Estimate β directly from definition using gradient scale.
 
@@ -476,6 +450,8 @@ class ERMStabilityEstimator:
             Loss function ℓ(z; θ)
         grad_fn : callable
             Gradient function ∇ℓ(z; θ)
+        theta_init : np.ndarray
+            Initial parameter value for optimization
 
         Returns
         -------
@@ -483,10 +459,7 @@ class ERMStabilityEstimator:
             Estimated stability parameter (vector)
         """
         n = len(data)
-
-        # Initialize to track dimensionality
-        sample_grad = grad_fn(data[0], np.zeros(1))
-        d = len(sample_grad) if hasattr(sample_grad, '__len__') else 1
+        d = len(theta_init)
 
         Delta_values = np.zeros((self.n_bootstrap, d))
 
@@ -496,7 +469,7 @@ class ERMStabilityEstimator:
             data_boot = data[idx]
 
             # Fit A* on full bootstrap data
-            erm_star = RegularizedERM(lam=self.lam)
+            erm_star = RegularizedERM(lam=self.lam, theta_init=theta_init)
             theta_star = erm_star.fit(data_boot, loss_fn, grad_fn)
 
             # Compute leave-one-out gradient differences
@@ -509,7 +482,7 @@ class ERMStabilityEstimator:
                 data_loo = data_boot[mask]
 
                 # Fit A on leave-one-out data with warm start
-                erm_loo = RegularizedERM(lam=self.lam, theta_init=theta_star)
+                erm_loo = RegularizedERM(lam=self.lam, theta_init=theta_star) # Use theta_star as warm start
                 theta_loo = erm_loo.fit(data_loo, loss_fn, grad_fn)
 
                 # Compute gradient difference
