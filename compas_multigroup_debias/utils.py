@@ -361,8 +361,8 @@ def results_to_dataframe(results, order_races, order_sexes):
     plot_data = []
 
     for group in all_groups:
-        for method in ['Original GBT', 'Standard OLS', 'Conservative OLS']:
-            method_key = {'Original GBT': 'original',
+        for method in ['Original', 'Standard OLS', 'Conservative OLS']:
+            method_key = {'Original': 'original',
                          'Standard OLS': 'standard',
                          'Conservative OLS': 'conservative'}[method]
             for bias_value in results[method_key][group]:
@@ -405,7 +405,7 @@ def print_summary_statistics(results, order_races, order_sexes):
         mean_cons = np.mean(results['conservative'][group])
         std_cons = np.std(results['conservative'][group])
 
-        print(f"{group:<20} {'Original GBT':<20} {mean_orig:+.6f}   {std_orig:.6f}   {abs(mean_orig):.6f}")
+        print(f"{group:<20} {'Original':<20} {mean_orig:+.6f}   {std_orig:.6f}   {abs(mean_orig):.6f}")
         print(f"{'':<20} {'Standard OLS':<20} {mean_std:+.6f}   {std_std:.6f}   {abs(mean_std):.6f}")
         print(f"{'':<20} {'Conservative OLS':<20} {mean_cons:+.6f}   {std_cons:.6f}   {abs(mean_cons):.6f}")
         reduction_std = abs(mean_orig) - abs(mean_std)
