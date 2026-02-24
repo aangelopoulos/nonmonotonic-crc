@@ -2,7 +2,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![arXiv](https://img.shields.io/badge/arXiv-2502.00000-b31b1b.svg)](https://arxiv.org/)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.20151-b31b1b.svg)]([https://arxiv.org/](https://arxiv.org/abs/2602.20151))
 
 Code for conformal risk control with non-monotonic loss functions.
 
